@@ -1,0 +1,98 @@
+﻿@page "/fetchdata";
+@using Microsoft.Identity.Client;
+@using Microsoft.Identity.Web;
+@using System.Text.Json;
+@inject MicrosoftIdentityConsentAndConditionalAccessHandler ConsentHandler;
+@inject IHttpClientFactory HttpClientFactory;
+@inject Microsoft.Identity.Web.ITokenAcquisition TokenAcquisitionService;
+@inject IConfiguration configuration;
+
+<PageTitle>WhoAmI</PageTitle>
+
+<h1>WhoAmI</h1>
+
+<p>This component demonstrates fetching data from Dataverse.</p>
+
+@if (WhoIAm == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Property</th>
+                <th>Value</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>BusinessUnitId</td>
+                <td>@WhoIAm.BusinessUnitId</td>
+            </tr>
+            <tr>
+                <td>OrganizationId</td>
+                <td>@WhoIAm.OrganizationId</td>
+            </tr>
+            <tr>
+                <td>UserId</td>
+                <td>@WhoIAm.UserId</td>
+            </tr>
+        </tbody>
+    </table>
+}
+
+@code {
+    private WhoAmIResponse WhoIAm;
+    private HttpClient _httpClient;
+
+    protected override async Task OnInitializedAsync()
+    {
+      string baseUrl = configuration["DataverseConfig:BaseUri"];
+
+      // Get the HttpClient
+      _httpClient = HttpClientFactory.CreateClient();
+
+      // Get the token
+      var token = string.Empty;
+      try
+      {
+        token = await TokenAcquisitionService.GetAccessTokenForUserAsync(new string[] { $"{baseUrl}user_impersonation" });
+      }
+      // Microsoft Identity Web specific exception class for use in Blazor or Razor pages to process the user challenge.
+      // Handles the MsalUiRequiredException.
+      catch (MicrosoftIdentityWebChallengeUserException ex)
+      {
+        ConsentHandler.HandleException(ex);
+      }
+      catch (Exception)
+      {
+        throw new Exception("Error getting access token.");
+      }
+
+      // Set the auth token
+      _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+      // Send the request
+      var dataRequest = await _httpClient.GetAsync($"{baseUrl}api/data/v9.2/WhoAmI");
+
+      if (dataRequest.IsSuccessStatusCode)
+      {
+        var jsonString = System.Text.Json.JsonDocument.Parse(await dataRequest.Content.ReadAsStreamAsync());
+        WhoIAm = JsonSerializer.Deserialize<WhoAmIResponse>(jsonString);
+      }
+      else
+      {
+        throw new Exception("Error sending request.");
+      }
+    }
+
+    // Used with System.Text.Json.JsonSerializer.Deserialize to deserialize response body
+    public class WhoAmIResponse
+    {
+      public Guid BusinessUnitId { get; set; }
+      public Guid OrganizationId { get; set; }
+      public Guid UserId { get; set; }
+    }
+}
